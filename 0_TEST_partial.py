@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from pandas import DataFrame as df
-import MSM
+import MSM_util
 
 GLD = pd.read_excel('data_GVZ_GLD.xlsx')
 date_GLD = GLD.iloc[:,3]
@@ -23,9 +23,9 @@ gamma_k = input_param[2]
 sigma = input_param[3]
 
 estim_flag = []
-A_template = MSM.T_mat_temp(kbar)
+A_template = MSM_util.T_mat_temp(kbar)
 
-LL, LLs = MSM.MSM_likelihood_new(b, m0, gamma_k, sigma, kbar, data, A_template)
+LL = MSM_util.MSM_likelihood_new(b, m0, gamma_k, sigma, kbar, data, A_template)
 
 # MSM.MSM_likelihood(input_param, kbar, data, A_template, estim_flag)
 print(LL)
