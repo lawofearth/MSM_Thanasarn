@@ -18,13 +18,13 @@ startingvals = []
 LB = [1, 1, 0.001, 0.0001]
 UB = [50, 1.99, 0.99999, 5]
 
-# set up atemplate for a transition matrix
-A_template = MSM_util.T_mat_temp(kbar)
+# set up A_template for a transition matrix
+A_template = T_mat_temp(kbar)
 
 # Grid search for starating values
 # TODO: (try sklearn.GridsearchCV) or map lambda instead of double for-loop
-input_param, LLS = MSM_starting_values(data, startingvals, kbar, A_template)
-
+# input_param, LLS = MSM_starting_values(data, startingvals, kbar, A_template)
+input_param, LLS = MSM_starting_values2(data, startingvals, kbar)
 # Minimize multivariate
 
 b = input_param[0]
@@ -35,7 +35,7 @@ sigma = input_param[3]
 
 print(LLS)
 
-LL = MSM_util.MSM_likelihood_new(b, m0, gamma_k, sigma, kbar, data, A_template)
+LL = MSM_likelihood_new(b, m0, gamma_k, sigma, kbar, data, A_template)
 
 # MSM.MSM_likelihood(input_param, kbar, data, A_template, estim_flag)
 print(LL)
