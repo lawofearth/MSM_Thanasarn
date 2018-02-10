@@ -42,7 +42,7 @@ params.add('b', value= input_param[1],  min=LB[1], max = UB[1])
 params.add('gamma_k', input_param[2],  min=LB[2], max = UB[2])
 params.add('sigma', value= input_param[3],  min=LB[3])
 
-minner = Minimizer(MSM_likelihood_new2V2, params, fcn_args=(kbar, data))
+minner = Minimizer(MSM_likelihood_new, params, fcn_args=(kbar, data))
 result = minner.minimize(method='slsqp')
 
 print(result)

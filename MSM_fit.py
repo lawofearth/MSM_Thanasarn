@@ -22,18 +22,10 @@ startingvals = []
 LB = [1, 1, 0.001, 0.0001]
 UB = [1.99, 50, 0.99999, 5]
 
-# set up A_template for a transition matrix
-A_template = T_mat_temp(kbar)
-
 
 # Grid search for starating values
 # TODO: (try sklearn.GridsearchCV) or map lambda instead of double for-loop
-# input_param, LLS = MSM_starting_values(data, startingvals, kbar, A_template)
-input_param, LLS = MSM_starting_values2(data, startingvals, kbar)
-
-bound = list(map(lambda x,y: (x,y), LB,UB))
-
-# input_param = np.asarray(input_param)
+input_param, LLS = MSM_starting_values(data, startingvals, kbar)
 
 # create a set of Parameters
 params = Parameters()
@@ -42,10 +34,12 @@ params.add('b', value= input_param[1],  min=LB[1], max = UB[1])
 params.add('gamma_k', input_param[2],  min=LB[2], max = UB[2])
 params.add('sigma', value= input_param[3],  min=LB[3])
 
-minner = Minimizer(MSM_likelihood_new2V2, params, fcn_args=(kbar, data))
+minner = Minimizer(MSM_likelihood_new, params, fcn_args=(kbar, data))
 result = minner.minimize(method='slsqp')
+print(result.params)
+
+for element in result.params : print(element)
 
 print(result)
-# cal
-# LL = MSM_likelihood_new2(m0, b, gamma_k, sigma, kbar, data)
+
 
