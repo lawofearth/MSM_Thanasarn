@@ -6,6 +6,8 @@ from pandas import DataFrame as df
 from MSM_util import *
 from lmfit import minimize, Minimizer, Parameters, Parameter, report_fit
 import sys, scipy, numpy
+import statsmodels
+
 
 # print(scipy.__version__, numpy.__version__, sys.version_info)
 

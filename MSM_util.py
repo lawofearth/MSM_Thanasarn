@@ -39,7 +39,7 @@ def MSM_starting_values(data, startingvals, kbar):
     lb = len(b)
     g = [.1, .5, .9]
     lg = len(g)
-    sigma = np.std(data, ddof=1) * np.sqrt(252)
+    sigma = np.std(data, ddof=1) #* np.sqrt(252)
 
     LL_storage = df(columns=['LL', 'b', 'g', 'm'])
     m0_lower = 1.2
@@ -106,14 +106,13 @@ def MSM_likelihood_new(*args):
         sigma = inp['sigma'].value
 
     A_temp = T_mat_temp(kbar)
-    sigma = sigma / np.sqrt(252)
     k2 = 2 ** kbar
 
     def transition_mat(A_temp, b, gamma_k, kbar):
         A = A_temp
 
         gamma = np.zeros((kbar, 1))
-        gamma[0] = 1 - (1 - gamma_k) ** (1 / (b ** (kbar - 1)))  # TOWARN : Equation does not conform bbut math is ok
+        gamma[0] = 1 - (1 - gamma_k) ** (1 / (b ** (kbar - 1)))
 
         def bitget(number, position):
 
@@ -232,7 +231,9 @@ def MSM_likelihood_new(*args):
 def MSM_fitdata(data, kbar, LB ,UB, op_methods, startingvals):
     """
     Combine MSM_likelihood_new, MSM_starting_values, T_mat_Temp
-    :param data:
+    :param data: Must be a column vector of a log return
+    from latest day [index0 : 1 Jan 1974] to today [index -1 : 1 Jan 2018]
+    multiply it with 100
     :param kbar:
     :param LB:
     :param UB:
@@ -254,9 +255,9 @@ def MSM_fitdata(data, kbar, LB ,UB, op_methods, startingvals):
     params.add('gamma_k', input_param[2], min=LB[2], max=UB[2])
     params.add('sigma', value=input_param[3], min=LB[3], max=UB[3])
 
-    # print("==========init params=========")
-    # for element in params:
-    #     print(element + " = %8.4f" % (params[element].value))
+    print("==========init params=========")
+    for element in params:
+        print(element + " = %8.4f" % (params[element].value))
 
 
 
