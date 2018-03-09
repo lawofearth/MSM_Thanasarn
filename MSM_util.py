@@ -14,10 +14,24 @@ from pylab import rcParams
 
 def T_mat_temp(kbar):
     """
-    Build template for kbar
     :param kbar:
     :return:
+
+    Build template for kbar
+    use use bitXOR to build a matrix that corresponse to a change of regime in binary number
+    for Example row 6 in binary is 0110
+    column 10 in binary is 1010
+    If row represent the current state on Makov matrix.
+    Column will represent a next stage.
+    bitXOR operator do such that
+    1^0 = 0^1 = 1
+    1^1 = 0^0 = 0
+    which can represent a change in each k components.
+    A_temp have size of 2**k x 2**k
+    which 2**k came form every possible states.
+
     """
+
     A = np.fromfunction(lambda i, j: i ^ j, (2**kbar, 2**kbar), dtype=int)
     A_temp = A.astype(float)
     return A_temp
@@ -25,7 +39,7 @@ def T_mat_temp(kbar):
 
 def MSM_starting_values(data, startingvals, kbar):
     """
-    find starting values for params
+    find starting values for params using Grid search for multiple starting values.
     :param data:
     :param startingvals:
     :param kbar:
@@ -35,13 +49,25 @@ def MSM_starting_values(data, startingvals, kbar):
     # print('No starting values entered: Using grid-search')
     # A grid search used to find the best set of starting values in the
     # event none are supplied by the user
-    b = [1.5, 3, 6, 20]
-    lb = len(b)
-    g = [.1, .5, .9]
-    lg = len(g)
-    sigma = np.std(data, ddof=1) #* np.sqrt(252)
 
-    LL_storage = df(columns=['LL', 'b', 'g', 'm'])
+    if bool(startingvals):
+        dum = startingvals[1]
+        b = [1.5, 1.5 + (dum - 1.5) / 3, 1.5 + 2 * (dum - 1.5) / 3, dum]
+        lb = len(b)
+
+        dum = startingvals[2]
+        g = [dum, (0.99 - dum) / 2 + dum, .99]
+        lg = len(g)
+        sigma = startingvals[3]
+
+    else:
+        b = [1.5, 3, 6, 20]
+        lb = len(b)
+        g = [.1, .5, .99]
+        lg = len(g)
+        sigma = np.std(data, ddof=1)  # * np.sqrt(252)
+
+    LL_storage = df(columns=['LL', 'b', 'g', 'm', 'sigma'])
     m0_lower = 1.2
     m0_upper = 1.8
 
@@ -52,6 +78,10 @@ def MSM_starting_values(data, startingvals, kbar):
 
     for i in range(0, lb):
         for j in range(0, lg):
+
+            """
+            minimize univariate m0
+            """
             a_m0 = fminbound(MSM_likelihood_new, 1.2, 1.8,
                              args=(b[i], g[j], sigma, kbar, data),
                              xtol=1e-05, maxfun=500, full_output=True)  # , disp=3)
@@ -61,10 +91,13 @@ def MSM_starting_values(data, startingvals, kbar):
             LL_storage.loc[len(LL_storage) - 1, 'm'] = a_m0[0]
 
     LL_storage = LL_storage.sort_values(by=['LL'], ascending=True)
+    LL_storage = LL_storage.reset_index(drop=True)
+    print(LL_storage)
     startingvals = [0., 0., 0., sigma]
     startingvals[1] = LL_storage.loc[0, 'b']
     startingvals[0] = LL_storage.loc[0, 'm']
     startingvals[2] = LL_storage.loc[0, 'g']
+    #     startingvals[3] = LL_storage.loc[0, 'sigma']
 
     return startingvals, LL_storage
 
@@ -76,7 +109,7 @@ def MSM_likelihood_new(*args):
     :return:
     """
 
-    if len(args) ==3 :
+    if len(args) == 3:
         # choose starting val
         inp = args[0]
         kbar = args[1]
@@ -86,7 +119,7 @@ def MSM_likelihood_new(*args):
         gamma_k = inp['gamma_k'].value
         sigma = inp['sigma'].value
 
-    elif len(args) == 6 :
+    elif len(args) == 6:
         #
         m0 = args[0]
         b = args[1]
@@ -95,7 +128,7 @@ def MSM_likelihood_new(*args):
         kbar = args[4]
         data = args[5]
 
-    elif len(args) == 4 :
+    elif len(args) == 4:
         # prediction
         inp = args[0]
         kbar = args[1]
@@ -105,10 +138,22 @@ def MSM_likelihood_new(*args):
         gamma_k = inp['gamma_k'].value
         sigma = inp['sigma'].value
 
+    # If I don't calculate A_temp every time. A_temp will change during optimization.
+    # Some expert told that I have update him during optimizaiton but I can't see the logic.
     A_temp = T_mat_temp(kbar)
     k2 = 2 ** kbar
 
     def transition_mat(A_temp, b, gamma_k, kbar):
+        """
+
+        :param A_temp:
+        :param b:
+        :param gamma_k: is a probability for each dydalic component k to
+        stay -> gamma[:,0] or
+        switch -> gamma[:,1]
+        :param kbar:
+        :return:
+        """
         A = A_temp
 
         gamma = np.zeros((kbar, 1))
@@ -128,7 +173,12 @@ def MSM_likelihood_new(*args):
 
         for i in range(1, kbar):
             gamma[i, 0] = 1 - (1 - gamma[0]) ** (b ** i)
-
+            """
+            when switch, for binomial distribution M(k,t) have equal probability to go to m0 or m1 
+            so if m1 switch to m1 I will consider this as "not switch"
+            That why gamma = gamma/2 
+            But for the persistent calculation we have to multiply gamma by 2.
+            """
         gamma = gamma / 2
         gamma = np.append(gamma, gamma, axis=1)
         gamma[:, 0] = 1 - gamma[:, 0]
@@ -140,10 +190,19 @@ def MSM_likelihood_new(*args):
 
         for i in range(0, kbar2):
             for m in range(1, kbar + 1):
+                """
+                We use bitget for each m component in i as binary number.
+                bitget tell us is that volatility components is switching(=1) or not(=0).
+                This is consistent with gamma that we have it before, we will get a propability of them.
+                Then multiply it for each k to get overall switching probability form state {row} -> {column}
+                """
                 prob[i, 0] = prob[i, 0] * gamma[kbar1 - m - 1, int(bitget(i, m))]
 
         for i in range(0, 2 ** (kbar - 1)):
             for j in range(i, 2 ** (kbar - 1)):
+                """
+                We use the symmetric properties to construct an A (transition matrix)
+                """
                 A[kbar2 - i - 1, j] = prob[kbar2 - int(A[i, j]) - 1, 0]
                 A[kbar2 - j - 1, i] = A[kbar2 - i - 1, j]
                 A[j, kbar2 - i - 1] = A[kbar2 - i - 1, j]
@@ -153,10 +212,30 @@ def MSM_likelihood_new(*args):
                 A[j, i] = A[i, j]
                 A[kbar2 - i - 1, kbar2 - j - 1] = A[i, j]
                 A[kbar2 - j - 1, kbar2 - i - 1] = A[i, j]
-        return A
+        return A, gamma
 
     def gofm(m0, kbar):
+        """
+        This is a volatility states.
+        m0 and m1 are multiplicative of volatility
+        to get 2^k states m0 != 1
+        This also exhibit a fractal structure in volatility models.
 
+        Binomial distribution @ k==1
+
+        2 |
+          |
+        m1|**********
+          |         *
+        1 |         *
+          |         *
+        m0|         ****************
+          |_______________________________
+
+        :param m0:
+        :param kbar:
+        :return:
+        """
         m1 = 2 - m0
         kbar2 = 2 ** kbar
         g_m1 = list(range(0, kbar2))
@@ -172,25 +251,25 @@ def MSM_likelihood_new(*args):
         g_m = np.sqrt(g_m1)
         return g_m
 
-    A = transition_mat(A_temp, b, gamma_k, kbar)
+    A, gamma = transition_mat(A_temp, b, gamma_k, kbar)
     g_m = gofm(m0, kbar)
     T = len(data)
     pi_mat = np.zeros((T + 1, k2))
-    LLs = np.zeros((T,1))
+    LLs = np.zeros((T, 1))
     pi_mat[0, :] = (1 / k2) * np.ones((1, k2))
 
     # Likelihood Algorithm
 
     pa = (2 * np.pi) ** (-0.5)
 
-    # g_m is binomial measure ?
+    # g_m is binomial measure
     g_m = np.array(g_m).reshape((1, len(g_m)))
     s = np.matlib.repmat(sigma * g_m, T, 1)
-
 
     data2 = np.array(data).reshape((len(data), 1))
 
     w_t = np.matlib.repmat(data2, 1, k2)
+    # to Normal
     w_t = np.divide(pa * np.e ** (-0.5 * np.power(np.divide(w_t, s), 2)), s)
     w_t = w_t + 10 ** -16
 
@@ -201,7 +280,8 @@ def MSM_likelihood_new(*args):
 
         # stop div by zero if prob are too low
         if ft == 0:
-            pi_mat[t + 1, 0] = 1
+            pi_mat[t+1, :] = (1 / k2) * np.ones((1, k2))
+
         else:
             pi_mat[t + 1, :] = np.divide(C, ft)
 
@@ -216,19 +296,19 @@ def MSM_likelihood_new(*args):
 
         # prediction
         t_predict = args[3]
-        vol = np.ones((t_predict,1))
+        vol = np.ones((t_predict, 1))
         vol = vol.astype(float)
-        state_now = pi_mat[-1 , :]
-        for t in range(0,t_predict):
-            vol[t,0] = sum(np.matmul(state_now, np.linalg.matrix_power(A, t+1)))*sigma
+        state_now = pi_mat[-1, :]
+        for t in range(0, t_predict):
+            vol[t, 0] = sum(np.matmul(state_now, np.linalg.matrix_power(A, t + 1))) * sigma
 
         return vol
 
     else:
-        return sum(LL)
+        return sum(LL)  # +1/(2*gamma[-1,1])-1
 
 
-def MSM_fitdata(data, kbar, LB ,UB, op_methods, startingvals):
+def MSM_fitdata(data, kbar, LB, UB, op_methods, startingvals):
     """
     Combine MSM_likelihood_new, MSM_starting_values, T_mat_Temp
     :param data: Must be a column vector of a log return
@@ -242,11 +322,10 @@ def MSM_fitdata(data, kbar, LB ,UB, op_methods, startingvals):
     :return:
     """
 
-    if not startingvals:
-        input_param, LLS = MSM_starting_values(data, startingvals, kbar)
-        # print('LL = %8.4f' % LLS.loc[0, 'LL'])
-    else:
-        input_param = startingvals
+    input_param, LLS = MSM_starting_values(data, startingvals, kbar)
+    # print('LL = %8.4f' % LLS.loc[0, 'LL'])
+
+    #     input_param = startingvals
 
     # create a set of Parameters
     params = Parameters()
@@ -259,15 +338,14 @@ def MSM_fitdata(data, kbar, LB ,UB, op_methods, startingvals):
     for element in params:
         print(element + " = %8.4f" % (params[element].value))
 
-
-
     minner = Minimizer(MSM_likelihood_new, params, fcn_args=(kbar, data))
     result = minner.minimize(method=op_methods)
 
-    # print("\n\n ==========fitted results==========")
-    # print('optimization method = ' + op_methods)
-    # for element in result.params:
-    #     print(element + " = %8.4f" % (result.params[element].value))
+    print("\n\n ==========fitted results==========")
+    print('optimization method = ' + op_methods)
+    for element in result.params:
+        print(element + " = %8.4f" % (result.params[element].value))
+    print("\n")
     # print('LLs = %8.4f' % (result.residual))
     # print('AIC = %8.4f' % (result.aic))
     # print('BIC = %8.4f' % (result.bic))
@@ -520,3 +598,191 @@ def msm_vary_k_plot(GVZ, m=20, *args):
     plt.legend()
 
     plt.show()
+
+
+def MSM_likelihood_wantto_forecast(*args):
+    """
+    calculate LL for 3 cases (depend on number of input)
+    :param args:
+    :return:
+    """
+
+    if len(args) == 3:
+        # choose starting val
+        inp = args[0]
+        kbar = args[1]
+        data = args[2]
+        m0 = inp['m0'].value
+        b = inp['b'].value
+        gamma_k = inp['gamma_k'].value
+        sigma = inp['sigma'].value
+
+    elif len(args) == 4:
+        # prediction
+        inp = args[0]
+        kbar = args[1]
+        data = args[2]
+        m0 = inp['m0'].value
+        b = inp['b'].value
+        gamma_k = inp['gamma_k'].value
+        sigma = inp['sigma'].value
+
+    A_temp = T_mat_temp(kbar)
+    k2 = 2 ** kbar
+
+    def transition_mat(A_temp, b, gamma_k, kbar):
+        A = A_temp
+
+        gamma = np.zeros((kbar, 1))
+        gamma[0] = 1 - (1 - gamma_k) ** (1 / (b ** (kbar - 1)))
+
+        def bitget(number, position):
+
+            bi_number = bin(number)
+            bi_number = bi_number[2:]
+            if len(bi_number) >= position:
+
+                fn_output = bi_number[-position]
+            else:
+                fn_output = 0
+
+            return fn_output
+
+        for i in range(1, kbar):
+            gamma[i, 0] = 1 - (1 - gamma[0]) ** (b ** i)
+
+        gamma = gamma / 2
+        gamma = np.append(gamma, gamma, axis=1)
+        gamma[:, 0] = 1 - gamma[:, 0]
+
+        kbar1 = kbar + 1
+        kbar2 = 2 ** kbar
+
+        prob = np.ones((kbar2, 1))
+
+        for i in range(0, kbar2):
+            for m in range(1, kbar + 1):
+                prob[i, 0] = prob[i, 0] * gamma[kbar1 - m - 1, int(bitget(i, m))]
+
+        for i in range(0, 2 ** (kbar - 1)):
+            for j in range(i, 2 ** (kbar - 1)):
+                A[kbar2 - i - 1, j] = prob[kbar2 - int(A[i, j]) - 1, 0]
+                A[kbar2 - j - 1, i] = A[kbar2 - i - 1, j]
+                A[j, kbar2 - i - 1] = A[kbar2 - i - 1, j]
+                A[i, kbar2 - j - 1] = A[kbar2 - i - 1, j]
+
+                A[i, j] = prob[int(A[i, j]), 0]
+                A[j, i] = A[i, j]
+                A[kbar2 - i - 1, kbar2 - j - 1] = A[i, j]
+                A[kbar2 - j - 1, kbar2 - i - 1] = A[i, j]
+        return A
+
+    def gofm(m0, kbar):
+
+        m1 = 2 - m0
+        kbar2 = 2 ** kbar
+        g_m1 = list(range(0, kbar2))
+        for i in range(0, kbar2):
+            g = 1
+            for j in range(0, kbar):  # not req -1
+                if g_m1[i] & 2 ** j != 0:
+                    g = g * m1
+                else:
+                    g = g * m0
+            g_m1[i] = g
+
+        g_m = np.sqrt(g_m1)
+        return g_m
+
+    A = transition_mat(A_temp, b, gamma_k, kbar)
+    g_m = gofm(m0, kbar)
+    T = len(data)
+    pi_mat = np.zeros((T + 1, k2))
+    LLs = np.zeros((T, 1))
+    pi_mat[0, :] = (1 / k2) * np.ones((1, k2))
+
+    # Likelihood Algorithm
+
+    pa = (2 * np.pi) ** (-0.5)
+
+    # g_m is binomial measure ?
+    g_m = np.array(g_m).reshape((1, len(g_m)))
+    s = np.matlib.repmat(sigma * g_m, T, 1)
+
+    data2 = np.array(data).reshape((len(data), 1))
+
+    w_t = np.matlib.repmat(data2, 1, k2)
+    w_t = np.divide(pa * np.e ** (-0.5 * np.power(np.divide(w_t, s), 2)), s)
+    w_t = w_t + 10 ** -16
+
+    for t in range(0, T):
+        piA = np.matmul(pi_mat[t, :], A)
+        C = np.multiply(w_t[t, :], piA)
+        ft = sum(C)
+
+        # stop div by zero if prob are too low
+        if ft == 0:
+            pi_mat[t + 1, :] = (1 / k2) * np.ones((1, k2))
+            print("!!!!!")
+        else:
+            pi_mat[t + 1, :] = np.divide(C, ft)
+
+        LLs[t] = np.log(np.dot(w_t[t, :], piA))
+
+    LL = -sum(LLs)
+
+    if np.isinf(LL):
+        print('Log-likelihood is inf. Probably due to all zeros in pi_mat.')
+
+    if len(args) == 4:
+
+        # provide ingrdents for forecast
+
+        return pi_mat, A, sigma, s
+
+    else:
+        return sum(LL)
+
+
+def forecast_vol(pi_mat, A, sigma, dum_data, predict_period =1 , starting_index =3000):
+    Pdict = df()
+    Pdict["vol"] = []
+
+    vol = np.ones((predict_period, 1))
+    vol = vol.astype(float)
+    for i in range(starting_index, len(pi_mat) - 1):
+
+        state_now = pi_mat[i, :]
+        for t in range(0, predict_period):
+            vol[t, 0] = np.inner(np.matmul(state_now, np.linalg.matrix_power(A, t + 1)), s[1, :])
+        Pdict.loc[i, "vol"] = sum(vol)
+
+    returns = np.log(1 + dum_data['Column2'].pct_change().dropna())
+    a = returns.to_frame()
+    data = a['Column2'] * 100
+    rsq = data[starting_index - 2:].shift(-predict_period)
+    dfrsq = rsq.to_frame()
+    Pdict['real'] = dfrsq ** 2
+
+    return Pdict
+
+
+def forecast_reg(rez, Pdict):
+
+    for ele in rez:
+        print(ele, ' = %8.4f' % rez[ele].value)
+
+    x = Pdict.loc[:, 'vol'].values.reshape(len(Pdict), 1)
+    y = Pdict['real']
+
+    x2 = sm.add_constant(x)
+    est = sm.OLS(y, x2)
+    est2 = est.fit()
+    print(est2.summary())
+    # print("MODEL MSE",est2.mse_model)
+    print("MODEL MSE", est2.mse_resid)
+    print("MODEL TSE", est2.mse_total)
+
+
+
+
